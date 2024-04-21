@@ -8,11 +8,15 @@ using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEditor;
 
-using ROSBridge;
-using ROSBridge.KalmanInterfaces;
-
 public class KalmanUeuos : MonoBehaviour
 {
+    public const int EFFECT_BOOT = 0;
+    public const int EFFECT_RAINBOW = 1;
+    public const int STATE_OFF = 0;
+    public const int STATE_AUTONOMY = 1;
+    public const int STATE_TELEOP = 2;
+    public const int STATE_FINISHED = 3;
+
     private static Func<float, Color> bootColorFunction = time => {
         const int numCycles = 10;
         const float cycleSpeed = 20;
@@ -32,15 +36,8 @@ public class KalmanUeuos : MonoBehaviour
     [SerializeField]
     private string autonomyMaterialNameRegex = "autonomy";
     [SerializeField]
-    private float maxIntensity = 5.0F;
+    private float maxIntensity = 10.0F;
     [SerializeField]
-    private string setColorService = "ueuos/set_color";
-    [SerializeField]
-    private string setStateService = "ueuos/set_state";
-    [SerializeField]
-    private string setEffectService = "ueuos/set_effect";
-
-    private ROS ros;
     private Material autonomyMaterial;
     private Func<float, Color> colorFunction;
     private float colorFunctionTimer;
@@ -60,43 +57,27 @@ public class KalmanUeuos : MonoBehaviour
         }
 
         // Set default color.
-        colorFunction = bootColorFunction;
-
-        // Initialize ROSBridge connection.
-        ros = new ROS();
-
-        // Create services.
-        await ros.CreateService<SetUeuosColor, SetUeuosColor.Request, SetUeuosColor.Response>(setColorService, SetColor);
-        await ros.CreateService<SetUeuosState, SetUeuosState.Request, SetUeuosState.Response>(setStateService, SetState);
-        await ros.CreateService<SetUeuosEffect, SetUeuosEffect.Request, SetUeuosEffect.Response>(setEffectService, SetEffect);
+        // colorFunction = bootColorFunction;
     }
 
-    private async void OnApplicationQuit()
+    public void SetColor(Color color)
     {
-        if (ros != null)
-        {
-            await ros.Close();
-        }
+        colorFunction = _ => color;
     }
 
-    private void SetColor(SetUeuosColor.Request req, SetUeuosColor.Response res)
+    public void SetState(int state)
     {
-        colorFunction = _ => new Color(req.Color.R, req.Color.G, req.Color.B);
-    }
-
-    private void SetState(SetUeuosState.Request req, SetUeuosState.Response res)
-    {
-        switch (req.State) {
-            case SetUeuosState.Request.OFF:
+        switch (state) {
+            case STATE_OFF:
                 colorFunction = _ => Color.black;
                 break;
-            case SetUeuosState.Request.AUTONOMY:
+            case STATE_AUTONOMY:
                 colorFunction = _ => Color.red;
                 break;
-            case SetUeuosState.Request.TELEOP:
+            case STATE_TELEOP:
                 colorFunction = _ => Color.blue;
                 break;
-            case SetUeuosState.Request.FINISHED:
+            case STATE_FINISHED:
                 colorFunction = time => {
                     float strength = Mathf.Sin(time * 2) * 0.5F + 0.5F;
                     return Color.green * strength;
@@ -108,14 +89,14 @@ public class KalmanUeuos : MonoBehaviour
         }
     }
 
-    private void SetEffect(SetUeuosEffect.Request req, SetUeuosEffect.Response res)
+    public void SetEffect(int effect)
     {
-        switch (req.Effect) {
-            case SetUeuosEffect.Request.BOOT:
+        switch (effect) {
+            case EFFECT_BOOT:
                 colorFunction = bootColorFunction;
                 colorFunctionTimer = 0;
                 break;
-            case SetUeuosEffect.Request.RAINBOW:
+            case EFFECT_RAINBOW:
                 colorFunction = time => {
                     float hue = (0.2F * time) % 1;
                     return Color.HSVToRGB(hue, 1, 1);

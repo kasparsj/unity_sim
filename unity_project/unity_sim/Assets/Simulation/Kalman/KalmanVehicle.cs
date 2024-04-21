@@ -1,11 +1,9 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
-
-using ROSBridge;
-using ROSBridge.KalmanInterfaces;
 
 // damping = how much the wheel RPM is limited; high damping plays well with high torque
 
@@ -26,8 +24,7 @@ public class KalmanVehicle : MonoBehaviour
     [SerializeField]
     private Transform flWheelBone, frWheelBone, blWheelBone, brWheelBone;
     [SerializeField]
-    private string wheelStatesTopic = "wheel_controller/state";
-
+    
     private const float unitTorque = 8; // torque per 1 m/s
     private const float manualSpeed = 1.0F; // WSAD move speed; m/s
     private const float manualTurnRadius = 1.0F; // WSAD turn radius; m
@@ -37,10 +34,13 @@ public class KalmanVehicle : MonoBehaviour
     private Dictionary<Transform, Quaternion> ogBoneRots = new Dictionary<Transform, Quaternion>();
     private Dictionary<Transform, Vector3> ogSupToWheelVecs = new Dictionary<Transform, Vector3>();
 
-    private ROS ros;
     private WheelStates wheelStates;
     private PID flTurnPid, frTurnPid, blTurnPid, brTurnPid;
     private PID flTorquePid, frTorquePid, blTorquePid, brTorquePid;
+
+    private static int lightsCounter = 0;
+    Camera[] allCameras;
+    private static int camCounter = 0;
 
     private void OnMove(InputValue value)
     {
@@ -103,13 +103,64 @@ public class KalmanVehicle : MonoBehaviour
         }
     }
 
+    private void OnLights(InputValue value)
+    {
+        KalmanUeuos ueuos = GetComponentInChildren<KalmanUeuos>();
+        if (ueuos != null)
+        {
+            switch (lightsCounter%7) {
+                case 0:
+                    ueuos.SetColor(Color.red);
+                    break;
+                case 1:
+                    ueuos.SetState(KalmanUeuos.STATE_OFF);
+                    break;
+                case 2:
+                    ueuos.SetState(KalmanUeuos.STATE_AUTONOMY);
+                    break;
+                case 3:
+                    ueuos.SetState(KalmanUeuos.STATE_TELEOP);
+                    break;
+                case 4:
+                    ueuos.SetState(KalmanUeuos.STATE_FINISHED);
+                    break;
+                case 5:
+                    ueuos.SetEffect(KalmanUeuos.EFFECT_BOOT);
+                    break;
+                case 6:
+                    ueuos.SetEffect(KalmanUeuos.EFFECT_RAINBOW);
+                    break;
+            }
+        }
+        lightsCounter++;
+    }
+
+    private void OnCamera(InputValue value)
+    {
+        string[] camNames = {"FollowCamera", "FrontCamera", "LeftCamera", "RightCamera", "BackCamera"};
+        if (allCameras == null) {
+            var followCam = GameObject.Find("FollowCamera").GetComponent<Camera>();
+            allCameras = (GetComponentsInChildren<Camera>()).Union(new Camera[]{followCam}).ToArray();
+        }
+        camCounter++;
+        var camera = camNames[camCounter%camNames.Length];
+        foreach (Camera childCamera in allCameras)
+        {
+            if (childCamera.enabled && childCamera.gameObject.name != camera) {
+                childCamera.enabled = false;
+                //Debug.Log(childCamera.gameObject.name + " disabled");
+            }
+            else if (childCamera.gameObject.name == camera) {
+                childCamera.enabled = true;
+                //Debug.Log(camera + " enabled");
+            }
+        }
+    }
+
     private async void Start()
     {
         // Override center of mass for better handling.
         GetComponent<Rigidbody>().centerOfMass = new Vector3(0, 0.2F, 0);
-
-        // Initialize ROSBridge connection.
-        ros = new ROS();
 
         // Zero-out wheel states.
         wheelStates = new WheelStates
@@ -139,21 +190,6 @@ public class KalmanVehicle : MonoBehaviour
         // Initialize PIDs.
         flTurnPid = frTurnPid = blTurnPid = brTurnPid = new PID(0.2F, 0, 0);
         flTorquePid = frTorquePid = blTorquePid = brTorquePid = new PID(1, 0, 0);
-
-        // Subscribe to /wheel_controller/state topic.
-        await ros.CreateSubscription<WheelStates>(wheelStatesTopic, (msg) =>
-        {
-            // Debug.Log("Received wheel states.");
-            wheelStates = msg;
-        });
-    }
-
-    private async void OnApplicationQuit()
-    {
-        if (ros != null)
-        {
-            await ros.Close();
-        }
     }
 
     private void FixedUpdate()
